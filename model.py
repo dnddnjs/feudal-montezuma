@@ -55,15 +55,16 @@ class Worker(nn.Module):
 class Percept(nn.Module):
 	def __init__(self):
 		super(Percept, self).__init__()
-		self.conv1 = nn.Conv2d(in_channels=3,
-								out_channels=16,
-								kernel_size=8,
-								stride=4)
-
-		self.conv2 = nn.Conv2d(in_channels=16,
-								out_channels=32,
-								kernel_size=4,
-								stride=2)
+		self.conv1 = nn.Conv2d(
+			in_channels=3,
+			out_channels=16,
+			kernel_size=8,
+			stride=4)
+		self.conv2 = nn.Conv2d(
+			in_channels=16,
+			out_channels=32,
+			kernel_size=4,
+			stride=2)
 		self.fc = nn.Linear(32*9*9 ,288)
 
 	def forward(self, x):
@@ -89,7 +90,7 @@ class FuN(nn.Module):
 		goal = goal.unsqueeze(-1)
 		goals = torch.cat([goal, goals], dim=-1)
 		if goals.size(-1) > 10:
-			goals = goals[:, :, :10]
+			goals = goals[:, :, -10:]
 
 		worker_inputs = (percept_z, worker_states, goals)
 		policy, worker_states = self.worker(worker_inputs)
