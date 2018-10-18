@@ -12,15 +12,22 @@ class Manager(nn.Module):
 		self.lstm.bias_ih.data.fill_(0)
 		self.lstm.bias_hh.data.fill_(0)
 
+		self.fc_value1 = nn.Linear(288, 50)
+		self.fc_value2 = nn.Linear(50, 1)
 
 	def forward(self, inputs):
 		x, (hx, cx) = inputs
 		x = F.relu(self.fc(x))
+		state = x
 		hx, cx = self.lstm(x, (hx, cx))
+
 		goal = hx
+		value = F.relu(self.fc_value1(goal))
+		value = self.fc_value2(value)
+
 		goal_norm = torch.norm(goal, p=2, dim=1)
-		goal /= goal_norm.detach()
-		return goal, (hx, cx)
+		goal = goal.div(goal_norm.detach())
+		return goal, (hx, cx), value, state
 
 
 class Worker(nn.Module):
@@ -35,9 +42,16 @@ class Worker(nn.Module):
 		self.embed_size = 16
 		self.fc = nn.Linear(288, self.embed_size)
 
+		self.fc_value1 = nn.Linear(288, 50)
+		self.fc_value2 = nn.Linear(50, 1)
+
 	def forward(self, inputs):
 		x, (hx, cx), goals = inputs
 		hx, cx = self.lstm(x, (hx, cx))
+
+		value = F.relu(self.fc_value1(hx))
+		value = self.fc_value2(value)
+
 		worker_embed = hx.view(hx.size(0), 
 			                   self.num_outputs, 
 			                   self.embed_size)
@@ -49,7 +63,7 @@ class Worker(nn.Module):
 		policy = torch.bmm(worker_embed, goal_embed)
 		policy = policy.squeeze(-1)
 		policy = F.softmax(policy)
-		return policy, (hx, cx)
+		return policy, (hx, cx), value
 
 
 class Percept(nn.Module):
@@ -82,16 +96,16 @@ class FuN(nn.Module):
 		self.manager = Manager()
 		self.worker = Worker(num_outputs)
 
-	def forward(self, x, manager_states, worker_states, goals):
+	def forward(self, x, m_lstm, w_lstm, goals):
 		percept_z = self.percept(x)
 		
-		manager_inputs = (percept_z, manager_states)
-		goal, manager_states = self.manager(manager_inputs)
-		goal = goal.unsqueeze(-1)
-		goals = torch.cat([goal, goals], dim=-1)
+		m_inputs = (percept_z, m_lstm)
+		goal, m_lstm, m_value, m_state = self.manager(m_inputs)
+		goals = torch.cat([goal.unsqueeze(-1), goals], dim=-1)
+
 		if goals.size(-1) > 10:
 			goals = goals[:, :, -10:]
 
-		worker_inputs = (percept_z, worker_states, goals)
-		policy, worker_states = self.worker(worker_inputs)
-		return policy, goals, manager_states, worker_states
+		w_inputs = (percept_z, w_lstm, goals)
+		policy, w_lstm, w_value = self.worker(w_inputs)
+		return policy, goal, goals, m_lstm, w_lstm, m_value, w_value, m_state
