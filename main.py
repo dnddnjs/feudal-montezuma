@@ -9,9 +9,10 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 
-from utils import pre_process, get_action
 from model import FuN
 from memory import Memory
+from train import train_model
+from utils import pre_process, get_action
 from tensorboardX import SummaryWriter
 
 parser = argparse.ArgumentParser()
@@ -29,28 +30,6 @@ parser.add_argument('--logdir', type=str, default='./logs',
                     help='tensorboardx logs directory')
 args = parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def train_model(net, target_net, optimizer, batch):
-    history = torch.stack(batch.history).to(device)
-    next_history = torch.stack(batch.next_history).to(device)
-    actions = torch.Tensor(batch.action).long().to(device)
-    rewards = torch.Tensor(batch.reward).to(device)
-    masks = torch.Tensor(batch.mask).to(device)
-
-    pred = net(history).squeeze(1)
-    next_pred = target_net(next_history).squeeze(1)
-    one_hot_action = torch.zeros(args.batch_size, pred.size(-1))
-    one_hot_action = one_hot_action.to(device)
-    one_hot_action.scatter_(1, actions.unsqueeze(1), 1)
-    pred = torch.sum(pred.mul(one_hot_action), dim=1)
-    target = rewards + args.gamma * next_pred.max(1)[0] * masks
-    
-    loss = F.smooth_l1_loss(pred, target.detach(), size_average=True)
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-    return loss.cpu().data
 
 
 def main():
@@ -74,30 +53,31 @@ def main():
     net.to(device)
     net.train()
 
-    memory = Memory(100000)
+    
     epsilon = 1.0
     steps = 0
     
     for e in range(10000):
+        memory = Memory(capacity=400)
         done = False
         dead = False
 
         score = 0
         avg_loss = []
-        start_life = 5
+        start_life = 6
         state = env.reset()
 
         state = pre_process(state)
         state = torch.Tensor(state).to(device)
         state = state.permute(2, 0, 1)
 
-        manager_hx = torch.zeros(1, 288).to(device)
-        manager_cx = torch.zeros(1, 288).to(device)
-        manager_states = (manager_hx, manager_cx)
+        m_hx = torch.zeros(1, 288).to(device)
+        m_cx = torch.zeros(1, 288).to(device)
+        m_lstm = (m_hx, m_cx)
 
-        worker_hx = torch.zeros(1, 288).to(device)
-        worker_cx = torch.zeros(1, 288).to(device)
-        worker_states = (worker_hx, worker_cx)
+        w_hx = torch.zeros(1, 288).to(device)
+        w_cx = torch.zeros(1, 288).to(device)
+        w_lstm = (w_hx, w_cx)
 
         goals = torch.zeros(1, 288, 1).to(device)
 
@@ -106,11 +86,11 @@ def main():
                 env.render()
 
             steps += 1
-            net_output = net(state.unsqueeze(0), manager_states, worker_states, goals)
-            policy, goal, manager_states, worker_states = net_output
+            net_output = net(state.unsqueeze(0), m_lstm, w_lstm, goals)
+            policy, goal, goals, m_lstm, w_lstm, m_value, w_value, m_state = net_output
             action = get_action(policy, num_actions)
             next_state, reward, done, info = env.step(action)
-            
+
             next_state = pre_process(next_state)
             next_state = torch.Tensor(next_state).to(device)
             next_state = next_state.permute(2, 0, 1)
@@ -123,16 +103,23 @@ def main():
             reward = np.clip(reward, -1, 1)
 
             mask = 0 if dead else 1
-            
-            if dead:
-                dead = False
-                manager_hx = torch.zeros(1, 288).to(device)
-                manager_cx = torch.zeros(1, 288).to(device)
-                manager_states = (manager_hx, manager_cx)
 
-                worker_hx = torch.zeros(1, 288).to(device)
-                worker_cx = torch.zeros(1, 288).to(device)
-                worker_states = (worker_hx, worker_cx)
+            memory.push(action, reward, mask, goal, policy,
+                        m_lstm, w_lstm, m_value, w_value, m_state)
+
+            if dead:
+                batch = memory.sample()
+                loss = train_model(net, optimizer, batch, args.gamma)
+                avg_loss.append(loss.cpu().data)
+
+                dead = False
+                m_hx = torch.zeros(1, 288).to(device)
+                m_cx = torch.zeros(1, 288).to(device)
+                m_lstm = (m_hx, m_cx)
+
+                w_hx = torch.zeros(1, 288).to(device)
+                w_cx = torch.zeros(1, 288).to(device)
+                w_lstm = (w_hx, w_cx)
 
                 goals = torch.zeros(1, 288, 1).to(device)
                 
