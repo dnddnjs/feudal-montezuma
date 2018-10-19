@@ -16,7 +16,7 @@ from utils import pre_process, get_action
 from tensorboardX import SummaryWriter
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--env_name', type=str, default="MontezumaRevenge-v4", help='')
+parser.add_argument('--env_name', type=str, default="Breakout-v4", help='')
 parser.add_argument('--load_model', type=str, default=None)
 parser.add_argument('--save_path', default='./save_model/', help='')
 parser.add_argument('--render', default=False, action="store_true")
@@ -56,30 +56,30 @@ def main():
     
     epsilon = 1.0
     steps = 0
-    
-    for e in range(10000):
-        memory = Memory(capacity=400)
+    memory = Memory(capacity=400)
+
+    for e in range(10000):    
         done = False
         dead = False
 
         score = 0
         avg_loss = []
-        start_life = 6
+        start_life = 5
         state = env.reset()
 
         state = pre_process(state)
         state = torch.Tensor(state).to(device)
         state = state.permute(2, 0, 1)
 
-        m_hx = torch.zeros(1, 288).to(device)
-        m_cx = torch.zeros(1, 288).to(device)
+        m_hx = torch.zeros(1, num_actions*16).to(device)
+        m_cx = torch.zeros(1, num_actions*16).to(device)
         m_lstm = (m_hx, m_cx)
 
-        w_hx = torch.zeros(1, 288).to(device)
-        w_cx = torch.zeros(1, 288).to(device)
+        w_hx = torch.zeros(1, num_actions*16).to(device)
+        w_cx = torch.zeros(1, num_actions*16).to(device)
         w_lstm = (w_hx, w_cx)
 
-        goals = torch.zeros(1, 288, 1).to(device)
+        goals = torch.zeros(1, num_actions*16, 1).to(device)
 
         while not done:
             if args.render:
@@ -113,24 +113,25 @@ def main():
                 avg_loss.append(loss.cpu().data)
 
                 dead = False
-                m_hx = torch.zeros(1, 288).to(device)
-                m_cx = torch.zeros(1, 288).to(device)
+                m_hx = torch.zeros(1, num_actions*16).to(device)
+                m_cx = torch.zeros(1, num_actions*16).to(device)
                 m_lstm = (m_hx, m_cx)
 
-                w_hx = torch.zeros(1, 288).to(device)
-                w_cx = torch.zeros(1, 288).to(device)
+                w_hx = torch.zeros(1, num_actions*16).to(device)
+                w_cx = torch.zeros(1, num_actions*16).to(device)
                 w_lstm = (w_hx, w_cx)
 
-                goals = torch.zeros(1, 288, 1).to(device)
-                
+                goals = torch.zeros(1, num_actions*16, 1).to(device)
+                memory = Memory(capacity=400)
+
             state = next_state
 
 
         if e % args.log_interval == 0:
             print('{} episode | score: {:.2f} | steps: {} | loss: {:.4f}'.format(
                 e, score, steps, np.mean(avg_loss)))
-            writer.add_scalar('log/score', float(score), steps)
-            writer.add_scalar('log/score', np.mean(avg_loss), steps)
+            # writer.add_scalar('log/score', float(score), steps)
+            # writer.add_scalar('log/score', np.mean(avg_loss), steps)
 
         if score > args.goal_score:
             ckpt_path = args.save_path + 'model.pth'

@@ -4,15 +4,15 @@ import torch.nn.functional as F
 
 
 class Manager(nn.Module):
-	def __init__(self):
+	def __init__(self, num_actions):
 		super(Manager, self).__init__()
-		self.fc = nn.Linear(288, 288)
+		self.fc = nn.Linear(num_actions*16, num_actions*16)
 
-		self.lstm = nn.LSTMCell(288, hidden_size=288)
+		self.lstm = nn.LSTMCell(num_actions*16, hidden_size=num_actions*16)
 		self.lstm.bias_ih.data.fill_(0)
 		self.lstm.bias_hh.data.fill_(0)
 
-		self.fc_value1 = nn.Linear(288, 50)
+		self.fc_value1 = nn.Linear(num_actions*16, 50)
 		self.fc_value2 = nn.Linear(50, 1)
 
 	def forward(self, inputs):
@@ -31,18 +31,18 @@ class Manager(nn.Module):
 
 
 class Worker(nn.Module):
-	def __init__(self, num_outputs):
-		self.num_outputs = num_outputs
+	def __init__(self, num_actions):
+		self.num_actions = num_actions
 		super(Worker, self).__init__()
 
-		self.lstm = nn.LSTMCell(288, hidden_size=288)
+		self.lstm = nn.LSTMCell(num_actions*16, hidden_size=num_actions*16)
 		self.lstm.bias_ih.data.fill_(0)
 		self.lstm.bias_hh.data.fill_(0)
 
-		self.embed_size = 16
-		self.fc = nn.Linear(288, self.embed_size)
+		
+		self.fc = nn.Linear(num_actions*16, 16)
 
-		self.fc_value1 = nn.Linear(288, 50)
+		self.fc_value1 = nn.Linear(num_actions*16, 50)
 		self.fc_value2 = nn.Linear(50, 1)
 
 	def forward(self, inputs):
@@ -53,8 +53,8 @@ class Worker(nn.Module):
 		value = self.fc_value2(value)
 
 		worker_embed = hx.view(hx.size(0), 
-			                   self.num_outputs, 
-			                   self.embed_size)
+			                   self.num_actions, 
+			                   16)
 
 		goals = goals.sum(dim=-1)
 		goal_embed = self.fc(goals)
@@ -67,7 +67,7 @@ class Worker(nn.Module):
 
 
 class Percept(nn.Module):
-	def __init__(self):
+	def __init__(self, num_actions):
 		super(Percept, self).__init__()
 		self.conv1 = nn.Conv2d(
 			in_channels=3,
@@ -79,7 +79,7 @@ class Percept(nn.Module):
 			out_channels=32,
 			kernel_size=4,
 			stride=2)
-		self.fc = nn.Linear(32*9*9 ,288)
+		self.fc = nn.Linear(32*9*9 ,num_actions*16)
 
 	def forward(self, x):
 		x = F.relu(self.conv1(x))
@@ -90,11 +90,11 @@ class Percept(nn.Module):
 
 
 class FuN(nn.Module):
-	def __init__(self, num_outputs):
+	def __init__(self, num_actions):
 		super(FuN, self).__init__()
-		self.percept = Percept()
-		self.manager = Manager()
-		self.worker = Worker(num_outputs)
+		self.percept = Percept(num_actions)
+		self.manager = Manager(num_actions)
+		self.worker = Worker(num_actions)
 
 	def forward(self, x, m_lstm, w_lstm, goals):
 		percept_z = self.percept(x)

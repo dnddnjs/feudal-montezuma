@@ -30,30 +30,20 @@ def train_model(net, optimizer, batch, gamma):
     
     
     rewards_int = torch.zeros_like(rewards).to(device)
-    for i in range(len(rewards)):
-        if i > 10:
-            cos_sum = 0
-            for j in range(10):
-                alpha = m_states[i] - m_states[i - j]
-                beta = goals[j]
-                cosine_sim = F.cosine_similarity(alpha.detach(), beta)
-                cos_sum = cos_sum + cosine_sim
-            reward_int = cos_sum / 10
-        else:
-            reward_int = 0
-            # cos_sum = 0
-            # for j in range(i):
-            #     alpha = m_states[i] - m_states[i-j]
-            #     beta = goals[j]
-            #     cosine_sim = F.cosine_similarity(alpha.detach(), beta)
-            #     cos_sum = cos_sum + cosine_sim
-            # reward_int = cos_sum / i
+    for i in range(10, len(rewards)):
+        cos_sum = 0
+        for j in range(1, 11):
+            alpha = m_states[i] - m_states[i - j]
+            beta = goals[j]
+            cosine_sim = F.cosine_similarity(alpha.detach(), beta)
+            cos_sum = cos_sum + cosine_sim
+        reward_int = cos_sum / 10
         rewards_int[i] = reward_int
     returns_int = get_returns(rewards_int, masks, gamma)
 
     loss1 = torch.zeros_like(returns).to(device)
     loss3 = torch.zeros_like(returns).to(device)
-    for i in range(len(rewards)-10):
+    for i in range(10, len(rewards)-10):
         m_advantage = returns[i] - m_values[i]
         alpha = m_states[i + 10] - m_states[i]
         beta = goals[i]
@@ -71,8 +61,9 @@ def train_model(net, optimizer, batch, gamma):
     loss4 = F.mse_loss(w_values.squeeze(), returns + returns_int)
     loss = loss1 + loss2 + loss3 + loss4
     loss = loss / len(rewards)
+    
     optimizer.zero_grad()
-    loss.backward(retain_graph=True)
+    loss.backward()
     optimizer.step()
 
     
