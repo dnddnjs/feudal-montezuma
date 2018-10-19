@@ -101,7 +101,11 @@ class FuN(nn.Module):
 		
 		m_inputs = (percept_z, m_lstm)
 		goal, m_lstm, m_value, m_state = self.manager(m_inputs)
-		goals = torch.cat([goal.unsqueeze(-1), goals], dim=-1)
+
+		if goals.sum() == 0:
+			goals = goal.unsqueeze(-1)
+		else:
+			goals = torch.cat([goal.unsqueeze(-1), goals], dim=-1)
 
 		if goals.size(-1) > 10:
 			goals = goals[:, :, -10:]
