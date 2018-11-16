@@ -16,7 +16,7 @@ def get_returns(rewards, masks, gamma):
     return returns
 
 
-def train_model(net, optimizer, batch, gamma):
+def train_model(net, optimizer, batch, gamma, horizon):
     actions = torch.Tensor(batch.action).long().to(device)
     rewards = torch.Tensor(batch.reward).to(device)
     masks = torch.Tensor(batch.mask).to(device)
@@ -28,41 +28,32 @@ def train_model(net, optimizer, batch, gamma):
 
     returns = get_returns(rewards, masks, gamma)
     
-    
     rewards_int = torch.zeros_like(rewards).to(device)
-    for i in range(len(rewards)):
-        if i > 10:
-            cos_sum = 0
-            for j in range(10):
-                alpha = m_states[i] - m_states[i - j]
-                beta = goals[j]
-                cosine_sim = F.cosine_similarity(alpha.detach(), beta)
-                cos_sum = cos_sum + cosine_sim
-            reward_int = cos_sum / 10
-        else:
-            reward_int = 0
-            # cos_sum = 0
-            # for j in range(i):
-            #     alpha = m_states[i] - m_states[i-j]
-            #     beta = goals[j]
-            #     cosine_sim = F.cosine_similarity(alpha.detach(), beta)
-            #     cos_sum = cos_sum + cosine_sim
-            # reward_int = cos_sum / i
-        rewards_int[i] = reward_int
+    # todo: how to get intrinsic reward before 10 steps
+    for i in range(horizon, len(rewards)):
+        cos_sum = 0
+        for j in range(1, horizon+1):
+            alpha = m_states[i] - m_states[i-j]
+            beta = goals[i-j]
+            cosine_sim = F.cosine_similarity(alpha, beta)
+            cos_sum = cos_sum + cosine_sim
+        reward_int = cos_sum / horizon
+        rewards_int[i] = reward_int.detach()
     returns_int = get_returns(rewards_int, masks, gamma)
 
     loss1 = torch.zeros_like(returns).to(device)
     loss3 = torch.zeros_like(returns).to(device)
-    for i in range(len(rewards)-10):
+    # todo: how to update manager near end state
+    for i in range(horizon, len(rewards)-horizon):
         m_advantage = returns[i] - m_values[i]
-        alpha = m_states[i + 10] - m_states[i]
+        alpha = m_states[i + horizon] - m_states[i]
         beta = goals[i]
         cosine_sim = F.cosine_similarity(alpha.detach(), beta)
-        loss1[i] = - m_advantage.detach() * cosine_sim
+        loss1[i] = - m_advantage * cosine_sim
 
         log_policy = torch.log(policies[i] + 1e-5)
         w_advantage = returns[i] + returns_int[i] - w_values[i]
-        loss3[i] = -w_advantage.detach() * log_policy[:, actions[i]]
+        loss3[i] = - w_advantage * log_policy[:, actions[i]]
 
 
     loss1 = loss1.sum()
@@ -71,10 +62,9 @@ def train_model(net, optimizer, batch, gamma):
     loss4 = F.mse_loss(w_values.squeeze(), returns + returns_int)
     loss = loss1 + loss2 + loss3 + loss4
     loss = loss / len(rewards)
-    optimizer.zero_grad()
-    loss.backward(retain_graph=True)
-    optimizer.step()
-
     
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
 
     return loss

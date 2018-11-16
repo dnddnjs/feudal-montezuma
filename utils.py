@@ -13,6 +13,6 @@ def pre_process(image):
 
 
 def get_action(policy, num_actions):
-    policy = policy.data.numpy()[0]
+    policy = policy.data.cpu().numpy()[0]
     action = np.random.choice(num_actions, 1, p=policy)[0]
     return action
