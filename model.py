@@ -45,6 +45,10 @@ class Worker(nn.Module):
 
 		self.fc_value1 = nn.Linear(num_actions*16, 50)
 		self.fc_value2 = nn.Linear(50, 1)
+        
+		for m in self.modules():
+			if isinstance(m, nn.Linear):
+				nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
 
 	def forward(self, inputs):
 		x, (hx, cx), goals = inputs

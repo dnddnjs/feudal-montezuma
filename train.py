@@ -30,6 +30,7 @@ def train_model(net, optimizer, batch, gamma, horizon):
     
     rewards_int = torch.zeros_like(rewards).to(device)
     # todo: how to get intrinsic reward before 10 steps
+
     for i in range(horizon, len(rewards)):
         cos_sum = 0
         for j in range(1, horizon+1):

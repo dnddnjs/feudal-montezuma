@@ -56,11 +56,10 @@ def main():
     
     epsilon = 1.0
     steps = 0
-    memory = Memory(capacity=400)
+    memory = Memory(capacity=10000)
 
     for e in range(10000):    
         done = False
-        dead = False
 
         score = 0
         avg_loss = []
@@ -88,31 +87,27 @@ def main():
             steps += 1
             net_output = net(state.unsqueeze(0), m_lstm, w_lstm, goals)
             policy, goal, goals, m_lstm, w_lstm, m_value, w_value, m_state = net_output
+
             action = get_action(policy, num_actions)
-            next_state, reward, done, info = env.step(action)
+            next_state, reward, done, _ = env.step(action)
 
             next_state = pre_process(next_state)
             next_state = torch.Tensor(next_state).to(device)
             next_state = next_state.permute(2, 0, 1)
-
-            if start_life > info['ale.lives']:
-                dead = True
-                start_life = info['ale.lives']
             
             score += reward
             reward = np.clip(reward, -1, 1)
 
-            mask = 0 if dead else 1
+            mask = 0 if done else 1
 
             memory.push(action, reward, mask, goal, policy,
                         m_lstm, w_lstm, m_value, w_value, m_state)
 
-            if dead:
+            if done:
                 batch = memory.sample()
                 loss = train_model(net, optimizer, batch, args.gamma, args.horizon)
                 avg_loss.append(loss.cpu().data)
 
-                dead = False
                 m_hx = torch.zeros(1, num_actions*16).to(device)
                 m_cx = torch.zeros(1, num_actions*16).to(device)
                 m_lstm = (m_hx, m_cx)
@@ -122,7 +117,7 @@ def main():
                 w_lstm = (w_hx, w_cx)
 
                 goals = torch.zeros(1, num_actions*16, 1).to(device)
-                memory = Memory(capacity=400)
+                memory = Memory(capacity=10000)
 
             state = next_state
 
