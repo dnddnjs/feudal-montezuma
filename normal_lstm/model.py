@@ -1,13 +1,16 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions.multivariate_normal import MultivariateNormal
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Manager(nn.Module):
 	def __init__(self, num_actions):
 		super(Manager, self).__init__()
 		self.fc = nn.Linear(num_actions*16, num_actions*16)
-		# todo: change lstm to dilated lstm
 		self.lstm = nn.LSTMCell(num_actions*16, hidden_size=num_actions*16)
 		# todo: add lstm initialization
 		self.lstm.bias_ih.data.fill_(0)
@@ -15,7 +18,13 @@ class Manager(nn.Module):
 
 		self.fc_value1 = nn.Linear(num_actions*16, 50)
 		self.fc_value2 = nn.Linear(50, 1)
+		
+		self.epsilon = 0.1
 
+		for m in self.modules():
+			if isinstance(m, nn.Linear):
+				nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+				
 	def forward(self, inputs):
 		x, (hx, cx) = inputs
 		x = F.relu(self.fc(x))
@@ -25,9 +34,15 @@ class Manager(nn.Module):
 		goal = hx
 		value = F.relu(self.fc_value1(goal))
 		value = self.fc_value2(value)
-
-		goal_norm = torch.norm(goal, p=2, dim=1)
-		goal = goal.div(goal_norm.detach())
+        
+		# this is needed for exploration of manager.
+		# there is no specification about the value of epsilon
+		if np.random.rand() <= self.epsilon:
+			m = MultivariateNormal(torch.zeros(goal.size(1)), torch.eye(goal.size(1)))
+			goal = m.sample().to(device).unsqueeze(0)
+		else:
+			goal_norm = torch.norm(goal, p=2, dim=1)
+			goal = goal.div(goal_norm.detach())
 		return goal, (hx, cx), value, state
 
 
@@ -40,7 +55,6 @@ class Worker(nn.Module):
 		self.lstm.bias_ih.data.fill_(0)
 		self.lstm.bias_hh.data.fill_(0)
 
-		
 		self.fc = nn.Linear(num_actions*16, 16)
 
 		self.fc_value1 = nn.Linear(num_actions*16, 50)
@@ -85,6 +99,10 @@ class Percept(nn.Module):
 			kernel_size=4,
 			stride=2)
 		self.fc = nn.Linear(32*9*9 ,num_actions*16)
+		
+		for m in self.modules():
+			if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+				nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
 
 	def forward(self, x):
 		x = F.relu(self.conv1(x))

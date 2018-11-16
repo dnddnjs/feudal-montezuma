@@ -24,8 +24,6 @@ parser.add_argument('--w_gamma', default=0.95, help='')
 parser.add_argument('--log_interval', default=1, help='')
 parser.add_argument('--goal_score', default=300, help='')
 parser.add_argument('--horizon', default=1, help='')
-parser.add_argument('--logdir', type=str, default='./logs',
-                    help='tensorboardx logs directory')
 args = parser.parse_args()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -50,7 +48,6 @@ def main():
     net.to(device)
     net.train()
     
-    epsilon = 1.0
     total_steps = 0
     memory = Memory(capacity=400)
 
@@ -110,8 +107,6 @@ def main():
         if e % args.log_interval == 0:
             print('{} episode | score: {:.2f} | steps: {} | loss: {:.4f}'.format(
                 e, score, total_steps, np.mean(avg_loss)))
-            # writer.add_scalar('log/score', float(score), steps)
-            # writer.add_scalar('log/score', np.mean(avg_loss), steps)
 
         if score > args.goal_score:
             ckpt_path = args.save_path + 'model.pth'

@@ -1,0 +1,40 @@
+image size: (210, 160, 3)
+action size: 9
+/usr/local/lib/python3.5/dist-packages/skimage/transform/_warps.py:105: UserWarning: The default mode, 'constant', will be changed to 'reflect' in skimage 0.15.
+  warn("The default mode, 'constant', will be changed to 'reflect' in "
+/usr/local/lib/python3.5/dist-packages/skimage/transform/_warps.py:110: UserWarning: Anti-aliasing will be enabled by default in skimage 0.15 to avoid aliasing artifacts when down-sampling images.
+  warn("Anti-aliasing will be enabled by default in skimage 0.15 to "
+0 episode | score: 0.00 | steps: 400 | loss: -10.3079
+1 episode | score: 0.00 | steps: 800 | loss: -50.9952
+2 episode | score: 0.00 | steps: 1200 | loss: -107.0175
+3 episode | score: 0.00 | steps: 1600 | loss: -99.5735
+4 episode | score: 0.00 | steps: 2000 | loss: 25.4099
+5 episode | score: 0.00 | steps: 2400 | loss: -90.7628
+6 episode | score: 0.00 | steps: 2800 | loss: -63.6235
+7 episode | score: 0.00 | steps: 3200 | loss: 25.2786
+8 episode | score: 0.00 | steps: 3600 | loss: 21.1843
+9 episode | score: 0.00 | steps: 4000 | loss: 22.0315
+10 episode | score: 0.00 | steps: 4400 | loss: 11.4777
+11 episode | score: 0.00 | steps: 4800 | loss: 16.4582
+12 episode | score: 0.00 | steps: 5200 | loss: 9.6739
+13 episode | score: 0.00 | steps: 5600 | loss: 7.0014
+14 episode | score: 0.00 | steps: 6000 | loss: 1.4777
+15 episode | score: 0.00 | steps: 6400 | loss: 2.0874
+16 episode | score: 0.00 | steps: 6800 | loss: 2.2947
+17 episode | score: 0.00 | steps: 7200 | loss: 4.7690
+18 episode | score: 0.00 | steps: 7600 | loss: -1.7311
+19 episode | score: 0.00 | steps: 8000 | loss: -4.5343
+20 episode | score: 0.00 | steps: 8400 | loss: -0.9161
+21 episode | score: 0.00 | steps: 8800 | loss: 3.3280
+22 episode | score: 0.00 | steps: 9200 | loss: 0.2054
+23 episode | score: 0.00 | steps: 9600 | loss: 1.1842
+24 episode | score: 0.00 | steps: 10000 | loss: -0.9375
+25 episode | score: 0.00 | steps: 10400 | loss: -15.0877
+26 episode | score: 0.00 | steps: 10800 | loss: 3.0716
+27 episode | score: 0.00 | steps: 11200 | loss: 2.3816
+28 episode | score: 0.00 | steps: 11600 | loss: 1.3616
+29 episode | score: 0.00 | steps: 12000 | loss: 1.0506
+30 episode | score: 0.00 | steps: 12400 | loss: 0.7672
+31 episode | score: 0.00 | steps: 12800 | loss: 0.2608
+32 episode | score: 0.00 | steps: 13200 | loss: -0.2187
+33 episode | score: 0.00 | steps: 13600 | loss: 0.4840
