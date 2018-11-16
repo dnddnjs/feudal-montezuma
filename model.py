@@ -7,8 +7,9 @@ class Manager(nn.Module):
 	def __init__(self, num_actions):
 		super(Manager, self).__init__()
 		self.fc = nn.Linear(num_actions*16, num_actions*16)
-
+		# todo: change lstm to dilated lstm
 		self.lstm = nn.LSTMCell(num_actions*16, hidden_size=num_actions*16)
+		# todo: add lstm initialization
 		self.lstm.bias_ih.data.fill_(0)
 		self.lstm.bias_hh.data.fill_(0)
 
@@ -62,7 +63,7 @@ class Worker(nn.Module):
 		
 		policy = torch.bmm(worker_embed, goal_embed)
 		policy = policy.squeeze(-1)
-		policy = F.softmax(policy)
+		policy = torch.softmax(policy, dim=-1)
 		return policy, (hx, cx), value
 
 
@@ -90,11 +91,12 @@ class Percept(nn.Module):
 
 
 class FuN(nn.Module):
-	def __init__(self, num_actions):
+	def __init__(self, num_actions, horizon):
 		super(FuN, self).__init__()
 		self.percept = Percept(num_actions)
 		self.manager = Manager(num_actions)
 		self.worker = Worker(num_actions)
+		self.horizon = horizon
 
 	def forward(self, x, m_lstm, w_lstm, goals):
 		percept_z = self.percept(x)
@@ -102,13 +104,14 @@ class FuN(nn.Module):
 		m_inputs = (percept_z, m_lstm)
 		goal, m_lstm, m_value, m_state = self.manager(m_inputs)
 
+		# todo: at the start, there is no previous goals. Need to be checked
 		if goals.sum() == 0:
 			goals = goal.unsqueeze(-1)
 		else:
 			goals = torch.cat([goal.unsqueeze(-1), goals], dim=-1)
 
-		if goals.size(-1) > 10:
-			goals = goals[:, :, -10:]
+		if goals.size(-1) > self.horizon:
+			goals = goals[:, :, -self.horizon:]
 
 		w_inputs = (percept_z, w_lstm, goals)
 		policy, w_lstm, w_value = self.worker(w_inputs)

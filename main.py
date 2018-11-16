@@ -16,7 +16,7 @@ from utils import pre_process, get_action
 from tensorboardX import SummaryWriter
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--env_name', type=str, default="Breakout-v4", help='')
+parser.add_argument('--env_name', type=str, default="Enduro-v4", help='')
 parser.add_argument('--load_model', type=str, default=None)
 parser.add_argument('--save_path', default='./save_model/', help='')
 parser.add_argument('--render', default=False, action="store_true")
@@ -26,6 +26,7 @@ parser.add_argument('--initial_exploration', default=1000, help='')
 parser.add_argument('--update_target', default=10000, help='')
 parser.add_argument('--log_interval', default=1, help='')
 parser.add_argument('--goal_score', default=300, help='')
+parser.add_argument('--horizon', default=1, help='')
 parser.add_argument('--logdir', type=str, default='./logs',
                     help='tensorboardx logs directory')
 args = parser.parse_args()
@@ -42,7 +43,7 @@ def main():
     print('image size:', img_shape)
     print('action size:', num_actions)
 
-    net = FuN(num_actions)
+    net = FuN(num_actions, args.horizon)
 
     optimizer = optim.RMSprop(net.parameters(), lr=0.00025, eps=0.01)
     writer = SummaryWriter('logs')
@@ -52,7 +53,6 @@ def main():
     
     net.to(device)
     net.train()
-
     
     epsilon = 1.0
     steps = 0
@@ -109,7 +109,7 @@ def main():
 
             if dead:
                 batch = memory.sample()
-                loss = train_model(net, optimizer, batch, args.gamma)
+                loss = train_model(net, optimizer, batch, args.gamma, args.horizon)
                 avg_loss.append(loss.cpu().data)
 
                 dead = False
