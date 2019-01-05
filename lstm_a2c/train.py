@@ -73,14 +73,14 @@ def train_model(net, optimizer, transition, args):
         w_advantage = w_returns[i] + returns_int[i] - w_values_ext[i].squeeze(-1) - w_values_int[i].squeeze(-1)
         log_policy = log_policy.gather(-1, actions[i].unsqueeze(-1))
         w_loss[i] = - w_advantage * log_policy.squeeze(-1)
-
+    
     m_loss = m_loss.sum()
     w_loss = w_loss.sum()
-    m_loss_value = F.mse_loss(m_values.squeeze(), m_returns)
-    w_loss_value_ext = F.mse_loss(w_values_ext.squeeze(), w_returns)
-    w_loss_value_int = F.mse_loss(w_values_int.squeeze(), returns_int)
-    loss = w_loss_value_int
-    # loss = w_loss + w_loss_value_ext + w_loss_value_int + m_loss + m_loss_value
+    m_loss_value = F.mse_loss(m_values.squeeze(), m_returns.detach())
+    w_loss_value_ext = F.mse_loss(w_values_ext.squeeze(), w_returns.detach())
+    w_loss_value_int = F.mse_loss(w_values_int.squeeze(), returns_int.detach())
+
+    loss = w_loss + w_loss_value_ext + w_loss_value_int + m_loss + m_loss_value
     loss = loss / transition_size
     # TODO: Add entropy to loss for exploration
 

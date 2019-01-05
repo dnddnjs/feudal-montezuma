@@ -25,8 +25,8 @@ parser.add_argument('--w_gamma', default=0.95, help='')
 parser.add_argument('--goal_score', default=400, help='')
 parser.add_argument('--log_interval', default=10, help='')
 parser.add_argument('--save_interval', default=1000, help='')
-parser.add_argument('--num_envs', default=4, help='')
-parser.add_argument('--num_step', default=5, help='')
+parser.add_argument('--num_envs', default=16, help='')
+parser.add_argument('--num_step', default=40, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
 parser.add_argument('--lr', default=7e-4, help='')
@@ -113,15 +113,23 @@ def main():
                 dones.append(done)
                 
                 if dead:
-                    m_hx = torch.zeros(num_actions * 16).to(device)
-                    m_cx = torch.zeros(num_actions * 16).to(device)
-                    m_lstm[0][i] = m_hx
-                    m_lstm[1][i] = m_cx
+                    m_hx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                    m_hx_mask[i, :] = m_hx_mask[i, :]*0
+                    m_cx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                    m_cx_mask[i, :] = m_cx_mask[i, :]*0
+                    m_hx, m_cx = m_lstm
+                    m_hx = m_hx * m_hx_mask
+                    m_cx = m_cx * m_cx_mask
+                    m_lstm = (m_hx, m_cx)
                     
-                    w_hx = torch.zeros(num_actions * 16).to(device)
-                    w_cx = torch.zeros(num_actions * 16).to(device)
-                    w_lstm[0][i] = w_hx
-                    w_lstm[1][i] = w_cx
+                    w_hx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                    w_hx_mask[i, :] = w_hx_mask[i, :]*0
+                    w_cx_mask = torch.ones(args.num_envs, num_actions * 16).to(device)
+                    w_cx_mask[i, :] = w_cx_mask[i, :]*0                    
+                    w_hx, w_cx = w_lstm
+                    w_hx = w_hx * w_hx_mask
+                    w_cx = w_cx * w_cx_mask
+                    w_lstm = (w_hx, w_cx)
                     
                     goal_init = torch.zeros(args.horizon, num_actions * 16).to(device)
                     goals_horizon[i] = goal_init
