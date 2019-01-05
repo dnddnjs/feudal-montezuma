@@ -28,9 +28,9 @@ class Manager(nn.Module):
         goal = hx
         value = F.relu(self.fc_critic1(goal))
         value = self.fc_critic2(value)
-
-        goal_norm = torch.norm(goal, p=2, dim=1)
-        goal = goal.div(goal_norm.detach())
+        
+        goal_norm = torch.norm(goal, p=2, dim=1).unsqueeze(1)
+        goal = goal / goal_norm.detach()
         return goal, (hx, cx), value, state
 
 class Worker(nn.Module):
@@ -45,8 +45,11 @@ class Worker(nn.Module):
         self.fc = nn.Linear(num_actions * 16, 16)
 
         self.fc_critic1 = nn.Linear(num_actions * 16, 50)
-        self.fc_critic2 = nn.Linear(50, 1)
-
+        self.fc_critic1_out = nn.Linear(50, 1)
+        
+        self.fc_critic2 = nn.Linear(num_actions * 16, 50)
+        self.fc_critic2_out = nn.Linear(50, 1)
+        
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -56,20 +59,23 @@ class Worker(nn.Module):
         hx, cx = self.lstm(x, (hx, cx))
 
         value = F.relu(self.fc_critic1(hx))
-        value = self.fc_critic2(value)
+        value_ext = self.fc_critic1_out(value)
+        
+        value = F.relu(self.fc_critic2(hx))
+        value_int = self.fc_critic2_out(value)
 
         worker_embed = hx.view(hx.size(0),
                                self.num_actions,
                                16)
 
-        goals = goals.sum(dim=-1)
+        goals = goals.sum(dim=1)
         goal_embed = self.fc(goals)
         goal_embed = goal_embed.unsqueeze(-1)
 
         policy = torch.bmm(worker_embed, goal_embed)
         policy = policy.squeeze(-1)
-        policy = torch.softmax(policy, dim=-1)
-        return policy, (hx, cx), value
+        policy = F.softmax(policy, dim=-1)
+        return policy, (hx, cx), value_ext, value_int
 
 class Percept(nn.Module):
     def __init__(self, num_actions):
@@ -102,21 +108,15 @@ class FuN(nn.Module):
         self.worker = Worker(num_actions)
         self.horizon = horizon
 
-    def forward(self, x, m_lstm, w_lstm, goals):
+    def forward(self, x, m_lstm, w_lstm, goals_horizon):
         percept_z = self.percept(x)
 
         m_inputs = (percept_z, m_lstm)
         goal, m_lstm, m_value, m_state = self.manager(m_inputs)
-
+        
         # todo: at the start, there is no previous goals. Need to be checked
-        if goals.sum() == 0:
-            goals = goal.unsqueeze(-1)
-        else:
-            goals = torch.cat([goal.unsqueeze(-1), goals], dim=-1)
-
-        if goals.size(-1) > self.horizon:
-            goals = goals[:, :, -self.horizon:]
-
-        w_inputs = (percept_z, w_lstm, goals)
-        policy, w_lstm, w_value = self.worker(w_inputs)
-        return policy, goal, goals, m_lstm, w_lstm, m_value, w_value, m_state
+        goals_horizon = torch.cat([goals_horizon[:, 1:], goal.unsqueeze(1)], dim=1)
+        
+        w_inputs = (percept_z, w_lstm, goals_horizon)
+        policy, w_lstm, w_value_ext, w_value_int = self.worker(w_inputs)
+        return policy, goal, goals_horizon, m_lstm, w_lstm, m_value, w_value_ext, w_value_int, m_state

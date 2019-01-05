@@ -7,24 +7,19 @@ from collections import namedtuple
 Transition = namedtuple('Transition',
                         ('history', 'next_history', 'action', 'reward',
                          'mask', 'goal', 'policy', 'm_lstm', 'w_lstm',
-                         'm_value', 'w_value', 'm_state'))
+                         'm_value', 'w_value_ext', 'w_value_int', 'm_state'))
 
 
 class Memory(object):
-    def __init__(self, capacity):
+    def __init__(self):
         self.memory = []
-        self.capacity = capacity
         self.position = 0
 
     def push(self, history, next_history, action, reward,
-             mask, goal, policy, m_lstm, w_lstm, m_value, w_value, m_state):
+             mask, goal, policy, m_lstm, w_lstm, m_value, w_value_ext, w_value_int, m_state):
         """Saves a transition."""
-        if len(self.memory) < self.capacity:
-            self.memory.append(Transition(history, next_history, action, reward, mask,
-                           goal, policy, m_lstm, w_lstm, m_value, w_value, m_state))
-        self.memory[self.position] = Transition(history, next_history, action, reward, mask, goal,
-                       policy, m_lstm, w_lstm, m_value, w_value, m_state)
-        self.position = (self.position + 1) % self.capacity
+        self.memory.append(Transition(history, next_history, action, reward, mask,
+                           goal, policy, m_lstm, w_lstm, m_value, w_value_ext, w_value_int, m_state))
 
     def sample(self):
         transitions = Transition(*zip(*self.memory))

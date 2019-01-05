@@ -16,7 +16,7 @@ from env import EnvWorker
 from memory import Memory
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--env_name', type=str, default="MsPacman-v4", help='')
+parser.add_argument('--env_name', type=str, default="BreakoutDeterministic-v4", help='')
 parser.add_argument('--load_model', type=str, default=None)
 parser.add_argument('--save_path', default='./save_model/', help='')
 parser.add_argument('--render', default=False, action="store_true")
@@ -25,7 +25,7 @@ parser.add_argument('--w_gamma', default=0.95, help='')
 parser.add_argument('--goal_score', default=400, help='')
 parser.add_argument('--log_interval', default=10, help='')
 parser.add_argument('--save_interval', default=1000, help='')
-parser.add_argument('--num_envs', default=8, help='')
+parser.add_argument('--num_envs', default=4, help='')
 parser.add_argument('--num_step', default=5, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
@@ -46,7 +46,7 @@ def main():
     torch.manual_seed(500)
 
     img_shape = env.observation_space.shape
-    num_actions = env.action_space.n
+    num_actions = env.action_space.n - 1
     print('image size:', img_shape)
     print('action size:', num_actions)
 
@@ -73,17 +73,11 @@ def main():
     net.train()
 
     global_steps = 0
-    score = 0
+    score = np.zeros(args.num_envs)
     count = 0
 
-    histories = torch.zeros([args.num_envs, 4, 84, 84]).to(device)
-    state = env.reset()
-
-    state = pre_process(state)
-    state = torch.Tensor(state).to(device)
-    print("state dimension: ", state.size())
-    state = state.permute(2, 0, 1)
-
+    histories = torch.zeros([args.num_envs, 3, 84, 84]).to(device)
+    
     m_hx = torch.zeros(args.num_envs, num_actions * 16).to(device)
     m_cx = torch.zeros(args.num_envs, num_actions * 16).to(device)
     m_lstm = (m_hx, m_cx)
@@ -92,46 +86,65 @@ def main():
     w_cx = torch.zeros(args.num_envs, num_actions * 16).to(device)
     w_lstm = (w_hx, w_cx)
 
-    goals = torch.zeros(args.num_envs, num_actions * 16, args.num_envs).to(device)
+    goals_horizon = torch.zeros(args.num_envs, args.horizon + 1, num_actions * 16).to(device)
 
     while True:
         count += 1
-        memory = Memory(capacity=args.num_step)
+        memory = Memory()
         global_steps += (args.num_envs * args.num_step)
 
         # gather samples from the environment
         for i in range(args.num_step):
             # TODO: think about net output
-            net_output = net(histories.to(device), m_lstm, w_lstm, goals)
-            policies, goal, goals, m_lstm, w_lstm, m_value, w_value, m_state = net_output
+            net_output = net(histories.to(device), m_lstm, w_lstm, goals_horizon)
+            policies, goal, goals_horizon, m_lstm, w_lstm, m_value, w_value_ext, w_value_int, m_state = net_output
 
             actions = get_action(policies, num_actions)
 
             # send action to each worker environment and get state information
             next_histories, rewards, masks, dones = [], [], [], []
 
-            for parent_conn, action in zip(parent_conns, actions):
+            for i, (parent_conn, action) in enumerate(zip(parent_conns, actions)):
                 parent_conn.send(action)
                 next_history, reward, dead, done = parent_conn.recv()
-                next_histories.append(next_history.unsqueeze(0))
+                next_histories.append(next_history)
                 rewards.append(reward)
                 masks.append(1 - dead)
                 dones.append(done)
+                
+                if dead:
+                    m_hx = torch.zeros(num_actions * 16).to(device)
+                    m_cx = torch.zeros(num_actions * 16).to(device)
+                    m_lstm[0][i] = m_hx
+                    m_lstm[1][i] = m_cx
+                    
+                    w_hx = torch.zeros(num_actions * 16).to(device)
+                    w_cx = torch.zeros(num_actions * 16).to(device)
+                    w_lstm[0][i] = w_hx
+                    w_lstm[1][i] = w_cx
+                    
+                    goal_init = torch.zeros(args.horizon, num_actions * 16).to(device)
+                    goals_horizon[i] = goal_init
 
+                    
             score += rewards[0]
 
-            if dones[0]:
-                print('global steps {} | score: {} | '.format(global_steps, score))
-                writer.add_scalar('log/score', score, global_steps)
-                score = 0
+            # if agent in first environment dies, print and log score
+            for i in range(args.num_envs):
+                if dones[i]: 
+                    entropy = - policies * torch.log(policies + 1e-5)
+                    entropy = entropy.mean().data.cpu()
+                    print('global steps {} | score: {} | entropy: {:.4f} '.format(global_steps, score[i], entropy))
+                    if i == 0:
+                        writer.add_scalar('log/score', score[i], global_steps)
+                    score[i] = 0
 
-            next_histories = torch.cat(next_histories, dim=0)
+            next_histories = torch.Tensor(next_histories).to(device)
             rewards = np.hstack(rewards)
             masks = np.hstack(masks)
-
-            memory.push(histories.cpu(), next_histories.cpu(),
+            memory.push(histories, next_histories,
                         actions, rewards, masks, goal,
-                        policies, m_lstm, m_value, w_value, m_state)
+                        policies, m_lstm, w_lstm, m_value, w_value_ext, w_value_int, m_state)
             histories = next_histories
 
         # Train every args.num_step
