@@ -65,4 +65,3 @@ class EnvWorker(Process):
             if dead:
                 dead = False
                 self.init_state()
-

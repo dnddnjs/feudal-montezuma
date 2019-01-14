@@ -81,6 +81,7 @@ def train_model(net, optimizer, transition, args):
     w_loss_value_int = F.mse_loss(w_values_int.squeeze(), returns_int.detach())
 
     loss = w_loss + w_loss_value_ext + w_loss_value_int + m_loss + m_loss_value
+    # loss = w_loss + w_loss_value_ext + w_loss_value_int + m_loss_value
     loss = loss / transition_size
     # TODO: Add entropy to loss for exploration
 

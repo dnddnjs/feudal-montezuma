@@ -25,8 +25,8 @@ parser.add_argument('--w_gamma', default=0.95, help='')
 parser.add_argument('--goal_score', default=400, help='')
 parser.add_argument('--log_interval', default=10, help='')
 parser.add_argument('--save_interval', default=1000, help='')
-parser.add_argument('--num_envs', default=16, help='')
-parser.add_argument('--num_step', default=40, help='')
+parser.add_argument('--num_envs', default=12, help='')
+parser.add_argument('--num_step', default=20, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
 parser.add_argument('--lr', default=7e-4, help='')
@@ -130,7 +130,6 @@ def main():
                     w_hx = w_hx * w_hx_mask
                     w_cx = w_cx * w_cx_mask
                     w_lstm = (w_hx, w_cx)
-                    
                     goal_init = torch.zeros(args.horizon, num_actions * 16).to(device)
                     goals_horizon[i] = goal_init
 
@@ -159,6 +158,12 @@ def main():
         if (global_steps % args.num_step) == 0:  # Need to fix logic
             transitions = memory.sample()
             loss = train_model(net, optimizer, transitions, args)
+            
+            m_hx, m_cx = m_lstm
+            m_lstm = (m_hx.detach(), m_cx.detach())
+            w_hx, w_cx = w_lstm
+            w_lstm = (w_hx.detach(), w_cx.detach())
+            goals_horizon = goals_horizon.detach()
             # avg_loss.append(loss.cpu().data)
 
         if count % args.save_interval == 0:
@@ -168,17 +173,3 @@ def main():
 
 if __name__=="__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
