@@ -25,7 +25,7 @@ class Manager(nn.Module):
         state = x
         hx, cx = self.lstm(x, (hx, cx))
 
-        goal = hx
+        goal = cx
         value = F.relu(self.fc_critic1(goal))
         value = self.fc_critic2(value)
         
@@ -33,6 +33,7 @@ class Manager(nn.Module):
         goal = goal / goal_norm.detach()
         return goal, (hx, cx), value, state
 
+    
 class Worker(nn.Module):
     def __init__(self, num_actions):
         self.num_actions = num_actions
@@ -42,7 +43,8 @@ class Worker(nn.Module):
         self.lstm.bias_ih.data.fill_(0)
         self.lstm.bias_hh.data.fill_(0)
 
-        self.fc = nn.Linear(num_actions * 16, 16)
+        # linear projection of goal has no bias
+        self.fc = nn.Linear(num_actions * 16, 16, bias=False)
 
         self.fc_critic1 = nn.Linear(num_actions * 16, 50)
         self.fc_critic1_out = nn.Linear(50, 1)
@@ -67,9 +69,9 @@ class Worker(nn.Module):
         worker_embed = hx.view(hx.size(0),
                                self.num_actions,
                                16)
-
+        
         goals = goals.sum(dim=1)
-        goal_embed = self.fc(goals)
+        goal_embed = self.fc(goals.detach())
         goal_embed = goal_embed.unsqueeze(-1)
 
         policy = torch.bmm(worker_embed, goal_embed)
@@ -77,6 +79,7 @@ class Worker(nn.Module):
         policy = F.softmax(policy, dim=-1)
         return policy, (hx, cx), value_ext, value_int
 
+    
 class Percept(nn.Module):
     def __init__(self, num_actions):
         super(Percept, self).__init__()
