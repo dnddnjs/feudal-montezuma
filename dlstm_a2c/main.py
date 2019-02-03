@@ -25,13 +25,13 @@ parser.add_argument('--w_gamma', default=0.99, help='')
 parser.add_argument('--goal_score', default=400, help='')
 parser.add_argument('--log_interval', default=10, help='')
 parser.add_argument('--save_interval', default=1000, help='')
-parser.add_argument('--num_envs', default=1, help='')
+parser.add_argument('--num_envs', default=16, help='')
 parser.add_argument('--num_step', default=400, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
 parser.add_argument('--lr', default=7e-4, help='')
 parser.add_argument('--eps', default=1e-5, help='')
-parser.add_argument('--horizon', default=9, help='')
+parser.add_argument('--horizon', default=10, help='')
 parser.add_argument('--clip_grad_norm', default=5, help='')
 parser.add_argument('--logdir', type=str, default='./logs',
                     help='tensorboardx logs directory')
@@ -159,7 +159,7 @@ def main():
         # Train every args.num_step
         if (global_steps % args.num_step) == 0:  # Need to fix logic
             transitions = memory.sample()
-            loss = train_model(net, optimizer, transitions, args)
+            loss, grad_norm = train_model(net, optimizer, transitions, args)
             m_hx, m_cx = m_lstm
             m_lstm = (m_hx.detach(), m_cx.detach())
             w_hx, w_cx = w_lstm
