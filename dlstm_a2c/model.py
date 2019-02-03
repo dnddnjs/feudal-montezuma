@@ -11,6 +11,7 @@ class Manager(nn.Module):
         hidden_size = 128
 
         self.hx_memory = [torch.zeros(args.num_envs, num_actions * 16).to(device) for _ in range(dilation)]
+
         self.cx_memory = [torch.zeros(args.num_envs, num_actions * 16).to(device) for _ in range(dilation)]
         self.hidden_size = hidden_size
         self.horizon = dilation
@@ -43,7 +44,7 @@ class Manager(nn.Module):
         if self.index >= self.horizon:
             self.index %= self.horizon
 
-        goal = hx
+        goal = cx
         value = F.relu(self.fc_critic1(goal))
         value = self.fc_critic2(value)
         
@@ -60,7 +61,8 @@ class Worker(nn.Module):
         self.lstm.bias_ih.data.fill_(0)
         self.lstm.bias_hh.data.fill_(0)
 
-        self.fc = nn.Linear(num_actions * 16, 16)
+        # Linear projection of goal has no bias
+        self.fc = nn.Linear(num_actions * 16, 16, bias=False)
 
         self.fc_critic1 = nn.Linear(num_actions * 16, 50)
         self.fc_critic1_out = nn.Linear(50, 1)
@@ -87,7 +89,8 @@ class Worker(nn.Module):
                                16)
 
         goals = goals.sum(dim=1)
-        goal_embed = self.fc(goals)
+        # goals should be disconnected from Manager.
+        goal_embed = self.fc(goals.detach())
         goal_embed = goal_embed.unsqueeze(-1)
 
         policy = torch.bmm(worker_embed, goal_embed)

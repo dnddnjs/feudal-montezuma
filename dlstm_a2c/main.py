@@ -20,19 +20,19 @@ parser.add_argument('--env_name', type=str, default="BreakoutDeterministic-v4", 
 parser.add_argument('--load_model', type=str, default=None)
 parser.add_argument('--save_path', default='./save_model/', help='')
 parser.add_argument('--render', default=False, action="store_true")
-parser.add_argument('--m_gamma', default=0.99, help='')
-parser.add_argument('--w_gamma', default=0.95, help='')
+parser.add_argument('--m_gamma', default=0.999, help='')
+parser.add_argument('--w_gamma', default=0.99, help='')
 parser.add_argument('--goal_score', default=400, help='')
 parser.add_argument('--log_interval', default=10, help='')
 parser.add_argument('--save_interval', default=1000, help='')
 parser.add_argument('--num_envs', default=1, help='')
-parser.add_argument('--num_step', default=40, help='')
+parser.add_argument('--num_step', default=400, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
 parser.add_argument('--lr', default=7e-4, help='')
 parser.add_argument('--eps', default=1e-5, help='')
-parser.add_argument('--horizon', default=1, help='')
-parser.add_argument('--clip_grad_norm', default=0.5, help='')
+parser.add_argument('--horizon', default=9, help='')
+parser.add_argument('--clip_grad_norm', default=5, help='')
 parser.add_argument('--logdir', type=str, default='./logs',
                     help='tensorboardx logs directory')
 args = parser.parse_args()
@@ -75,6 +75,7 @@ def main():
     global_steps = 0
     score = np.zeros(args.num_envs)
     count = 0
+    grad_norm = 0
 
     histories = torch.zeros([args.num_envs, 3, 84, 84]).to(device)
     
@@ -131,7 +132,7 @@ def main():
                     w_cx = w_cx * w_cx_mask
                     w_lstm = (w_hx, w_cx)
                     
-                    goal_init = torch.zeros(args.horizon, num_actions * 16).to(device)
+                    goal_init = torch.zeros(args.horizon + 1, num_actions * 16).to(device)
                     goals_horizon[i] = goal_init
 
                     
@@ -142,7 +143,7 @@ def main():
                 if dones[i]: 
                     entropy = - policies * torch.log(policies + 1e-5)
                     entropy = entropy.mean().data.cpu()
-                    print('global steps {} | score: {} | entropy: {:.4f} '.format(global_steps, score[i], entropy))
+                    print('global steps {} | score: {} | entropy: {:.4f} | grad norm: {:.3f} '.format(global_steps, score[i], entropy, grad_norm))
                     if i == 0:
                         writer.add_scalar('log/score', score[i], global_steps)
                     score[i] = 0
@@ -159,6 +160,11 @@ def main():
         if (global_steps % args.num_step) == 0:  # Need to fix logic
             transitions = memory.sample()
             loss = train_model(net, optimizer, transitions, args)
+            m_hx, m_cx = m_lstm
+            m_lstm = (m_hx.detach(), m_cx.detach())
+            w_hx, w_cx = w_lstm
+            w_lstm = (w_hx.detach(), w_cx.detach())
+            goals_horizon = goals_horizon.detach()
             # avg_loss.append(loss.cpu().data)
 
         if count % args.save_interval == 0:
