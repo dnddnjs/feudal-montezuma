@@ -14,7 +14,7 @@ def train_model(net, optimizer, transition, args):
 
     entropy = - policies * torch.log(policies + 1e-5)
     policies = policies.gather(-1, actions.unsqueeze(-1))
-    log_policies = torch.log(policies.squeeze() + 1e-5)       
+    log_policies = torch.log(policies.squeeze(-1) + 1e-5)       
 
     # get multi-step td-error
     returns = torch.zeros_like(rewards).to(device)
@@ -29,9 +29,9 @@ def train_model(net, optimizer, transition, args):
 
     # get policy gradient
     loss_p = - log_policies * td_errors
-    loss_v= F.mse_loss(values.squeeze(-1), returns.detach())
-    loss = loss_p.mean() + args.value_coef * loss_v.mean() - args.entropy_coef * entropy.detach().mean()
-    
+    loss_v= F.mse_loss(values, returns.detach())
+    loss = loss_p.mean() + args.value_coef * loss_v - args.entropy_coef * entropy.detach().mean()
+    # print(loss_p.mean().item(), loss_v.item(), entropy.mean().item())
     optimizer.zero_grad()
     loss.backward()
     torch.nn.utils.clip_grad_norm_(net.parameters(), args.clip_grad_norm)

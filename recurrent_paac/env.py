@@ -19,7 +19,7 @@ class EnvWorker(Process):
 
     def init_state(self):
         state = self.env.reset()
-        state, _, _, _ = self.env.step(1)    
+        # state, _, _, _ = self.env.step(1)    
         state = pre_process(state)
         self.state = np.moveaxis(state, -1, 0)
 
@@ -35,7 +35,7 @@ class EnvWorker(Process):
                 self.env.render()
 
             action = self.child_conn.recv()
-            next_state, reward, done, _ = self.env.step(action + 1)
+            next_state, reward, done, _ = self.env.step(action)
             next_state = pre_process(next_state)
    
             steps += 1

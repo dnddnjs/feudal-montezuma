@@ -45,7 +45,7 @@ def main():
     torch.manual_seed(500)
 
     num_inputs = env.observation_space.shape
-    num_actions = env.action_space.n - 1
+    num_actions = env.action_space.n
     print('state size:', num_inputs)
     print('action size:', num_actions)
 
