@@ -159,7 +159,7 @@ def main():
         # Train every args.num_step
         if (global_steps % args.num_step) == 0:  # Need to fix logic
             transitions = memory.sample()
-            loss = train_model(net, optimizer, transitions, args)
+            loss, grad_norm = train_model(net, optimizer, transitions, args)
             m_hx, m_cx = m_lstm
             m_lstm = (m_hx.detach(), m_cx.detach())
             w_hx, w_cx = w_lstm
