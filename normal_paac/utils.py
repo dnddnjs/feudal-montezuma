@@ -6,8 +6,8 @@ from torch.distributions import Categorical
 
 
 def pre_process(image):
-    image = np.array(image)
-    image = resize(image, (84, 84, 3))
+    # image = np.array(image)
+    # image = resize(image, (84, 84, 3))
     image = rgb2gray(image)
     return image
 
