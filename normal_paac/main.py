@@ -18,7 +18,6 @@ from env import make_env, RenderSubprocVecEnv
 from model import ActorCritic
 from utils import get_action, pre_process
 from train import train_model
-from env import EnvWorker
 from memory import Memory
 
 parser = argparse.ArgumentParser()
@@ -30,9 +29,10 @@ parser.add_argument('--render', default=False, action="store_true")
 parser.add_argument('--gamma', default=0.99, help='')
 parser.add_argument('--lamda', default=0.95, help='')
 parser.add_argument('--log_interval', default=10, help='')
+parser.add_argument('--render_interval', default=4, help='')
 parser.add_argument('--save_interval', default=1000, help='')
-parser.add_argument('--num_envs', default=12, help='')
-parser.add_argument('--num_step', default=20, help='')
+parser.add_argument('--num_envs', type=int, default=12, help='')
+parser.add_argument('--num_step', type=int, default=20, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
 parser.add_argument('--lr', default=7e-4, help='')
