@@ -1,16 +1,12 @@
-import gym
 import torch
 import random
-import numpy as np
-from copy import deepcopy
-from utils import pre_process
 from torch.multiprocessing import Process
 
 import numpy as np
 import gym
 from gym import spaces
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
-from baselines.common.vec_env import VecEnv
+from baselines.common.vec_env import VecEnv, CloudpickleWrapper
 from multiprocessing import Process, Pipe
 
 
@@ -27,104 +23,110 @@ def make_env(env_name, rank, seed):
 def worker(remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
     env = env_fn_wrapper.x()
-    while True:
-        cmd, data = remote.recv()
-        if cmd == 'step':
-            ob, reward, done, info = env.step(data)
-            if done:
+    try:
+        while True:
+            cmd, data = remote.recv()
+            if cmd == 'step':
+                ob, reward, done, info = env.step(data)
+                if done:
+                    ob = env.reset()
+                remote.send((ob, reward, done, info))
+            elif cmd == 'reset':
                 ob = env.reset()
-            remote.send((ob, reward, done, info))
-        elif cmd == 'reset':
-            ob = env.reset()
-            remote.send(ob)
-        elif cmd == 'reset_task':
-            ob = env.reset_task()
-            remote.send(ob)
-        elif cmd == 'close':
-            remote.close()
-            break
-        elif cmd == 'get_spaces':
-            remote.send((env.action_space, env.observation_space))
-        elif cmd == 'render':
-            env.render()
-        else:
-            raise NotImplementedError
-
-
-class CloudpickleWrapper(object):
-    """
-    Uses cloudpickle to serialize contents (otherwise multiprocessing tries to use pickle)
-    """
-    def __init__(self, x):
-        self.x = x
-    def __getstate__(self):
-        import cloudpickle
-        return cloudpickle.dumps(self.x)
-    def __setstate__(self, ob):
-        import pickle
-        self.x = pickle.loads(ob)
+                remote.send(ob)
+            elif cmd == 'render':
+                remote.send(env.render(mode='rgb_array'))
+            elif cmd == 'close':
+                remote.close()
+                break
+            elif cmd == 'get_spaces':
+                remote.send((env.observation_space, env.action_space))
+            else:
+                raise NotImplementedError
+    except KeyboardInterrupt:
+        print('SubprocVecEnv worker: got KeyboardInterrupt')
+    finally:
+        env.close()
 
 
 class RenderSubprocVecEnv(VecEnv):
-    def __init__(self, env_fns, render_interval):
-        """ Minor addition to SubprocVecEnv, automatically renders environments
-        envs: list of gym environments to run in subprocesses
+    """
+    VecEnv that runs multiple environments in parallel in subproceses and communicates with them via pipes.
+    Recommended to use when num_envs > 1 and step() can be a bottleneck.
+    """
+    def __init__(self, env_fns, spaces=None):
         """
+        Arguments:
+        env_fns: iterable of callables -  functions that create environments to run in subprocesses. Need to be cloud-pickleable
+        """
+        self.waiting = False
         self.closed = False
         nenvs = len(env_fns)
         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(nenvs)])
         self.ps = [Process(target=worker, args=(work_remote, remote, CloudpickleWrapper(env_fn)))
-            for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
+                   for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
         for p in self.ps:
-            p.daemon = True # if the main process crashes, we should not cause things to hang
+            p.daemon = True  # if the main process crashes, we should not cause things to hang
             p.start()
         for remote in self.work_remotes:
             remote.close()
 
         self.remotes[0].send(('get_spaces', None))
-        self.action_space, self.observation_space = self.remotes[0].recv()
+        observation_space, action_space = self.remotes[0].recv()
+        self.viewer = None
+        self.specs = [f().spec for f in env_fns]
+        VecEnv.__init__(self, len(env_fns), observation_space, action_space)
 
-        self.render_interval = render_interval
-        self.render_timer = 0
-
-    def step(self, actions):
+    def step_async(self, actions):
+        self._assert_not_closed()
         for remote, action in zip(self.remotes, actions):
             remote.send(('step', action))
+        for remote in zip(self.remotes):
+            remote.send(('render', None))
+        self.waiting = True
+
+    def step_wait(self):
+        self._assert_not_closed()
         results = [remote.recv() for remote in self.remotes]
+        self.waiting = False
         obs, rews, dones, infos = zip(*results)
-
-        self.render_timer += 1
-        if self.render_timer == self.render_interval:
-            for remote in self.remotes:
-                remote.send(('render', None))
-            self.render_timer = 0
-
-        return np.stack(obs), np.stack(rews), np.stack(dones), infos
+        return _flatten_obs(obs), np.stack(rews), np.stack(dones), infos
 
     def reset(self):
+        self._assert_not_closed()
         for remote in self.remotes:
             remote.send(('reset', None))
-        return np.stack([remote.recv() for remote in self.remotes])
+        return _flatten_obs([remote.recv() for remote in self.remotes])
 
-    def reset_task(self):
-        for remote in self.remotes:
-            remote.send(('reset_task', None))
-        return np.stack([remote.recv() for remote in self.remotes])
-
-    def close(self):
-        if self.closed:
-            return
-
+    def close_extras(self):
+        self.closed = True
+        if self.waiting:
+            for remote in self.remotes:
+                remote.recv()
         for remote in self.remotes:
             remote.send(('close', None))
         for p in self.ps:
             p.join()
-        self.closed = True
 
-    @property
-    def num_envs(self):
-        return len(self.remotes)
+    def get_images(self):
+        self._assert_not_closed()
+        for pipe in self.remotes:
+            pipe.send(('render', None))
+        imgs = [pipe.recv() for pipe in self.remotes]
+        return imgs
+
+    def _assert_not_closed(self):
+        assert not self.closed, "Trying to operate on a SubprocVecEnv after calling close()"
 
 
+def _flatten_obs(obs):
+    assert isinstance(obs, list) or isinstance(obs, tuple)
+    assert len(obs) > 0
 
-            
+    if isinstance(obs[0], dict):
+        import collections
+        assert isinstance(obs, collections.OrderedDict)
+        keys = obs[0].keys()
+        return {k: np.stack([o[k] for o in obs]) for k in keys}
+    else:
+        return np.stack(obs)

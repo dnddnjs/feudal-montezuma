@@ -3,9 +3,53 @@ import torch.nn as nn
 import torch
 
 
+def init(module, weight_init, bias_init, gain=1):
+    weight_init(module.weight.data, gain=gain)
+    bias_init(module.bias.data)
+    return module
+
+
+class Flatten(nn.Module):
+    def forward(self, x):
+        return x.view(x.size(0), -1)
+    
+    
 class ActorCritic(nn.Module):
     def __init__(self, num_outputs):
         super(ActorCritic, self).__init__()
+        hidden_size = 512
+        
+        init_ = lambda m: init(m,
+            nn.init.orthogonal_,
+            lambda x: nn.init.constant_(x, 0),
+            nn.init.calculate_gain('relu'))
+
+        self.main = nn.Sequential(
+            init_(nn.Conv2d(4, 32, 8, stride=4)),
+            nn.ReLU(),
+            init_(nn.Conv2d(32, 64, 4, stride=2)),
+            nn.ReLU(),
+            init_(nn.Conv2d(64, 32, 3, stride=1)),
+            nn.ReLU(),
+            Flatten(),
+            init_(nn.Linear(32 * 7 * 7, hidden_size)),
+            nn.ReLU()
+        )
+
+        init_ = lambda m: init(m,
+            nn.init.orthogonal_,
+            lambda x: nn.init.constant_(x, 0))
+        
+        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+        
+        init_ = lambda m: init(m,
+            nn.init.orthogonal_,
+            lambda x: nn.init.constant_(x, 0),
+            gain=0.01)
+        
+        self.actor_linear = init_(nn.Linear(hidden_size, num_outputs))
+        
+        '''
         self.conv1 = nn.Conv2d(in_channels=4, out_channels=32,
                                kernel_size=8, stride=4)
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64,
@@ -15,23 +59,10 @@ class ActorCritic(nn.Module):
         self.fc = nn.Linear(4 * 4 * 64, 512)
         self.fc_actor = nn.Linear(512, num_outputs)
         self.fc_critic = nn.Linear(512, 1)
-
-        for p in self.modules():
-            if isinstance(p, nn.Conv2d):
-                nn.init.kaiming_uniform_(p.weight)
-                p.bias.data.zero_()
-
-            if isinstance(p, nn.Linear):
-                nn.init.kaiming_uniform_(p.weight, a=1.0)
-                p.bias.data.zero_()
+        '''
 
     def forward(self, x):
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-        x = torch.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        x = torch.relu(x)
-        policy = F.softmax(self.fc_actor(x), dim=-1)
-        value = self.fc_critic(x)
-        return policy, value
+        x = self.main(x / 255.)
+        logit = self.actor_linear(x)
+        value = self.critic_linear(x)
+        return logit, value
