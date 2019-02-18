@@ -3,6 +3,7 @@ import gym
 import time
 import argparse
 import numpy as np
+from collections import deque
 
 import torch
 import torch.optim as optim
@@ -10,28 +11,34 @@ import torch.nn.functional as F
 from tensorboardX import SummaryWriter
 from torch.multiprocessing import Pipe
 
-from model import A2CLSTM
-from utils import get_action
+from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+from baselines.common.vec_env.vec_frame_stack import VecFrameStack
+
+from env import make_env, RenderSubprocVecEnv
+
+from model import ActorCritic
+from utils import get_action, get_entropy
 from train import train_model
-from env import EnvWorker
 from memory import Memory
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--env_name', type=str, default="PongDeterministic-v4", help='')
+parser.add_argument('--env_name', type=str, default="BreakoutNoFrameskip-v0", help='')
+parser.add_argument('--seed', default=7000, help='')
 parser.add_argument('--load_model', type=str, default=None)
 parser.add_argument('--save_path', default='./save_model/', help='')
 parser.add_argument('--render', default=False, action="store_true")
 parser.add_argument('--gamma', default=0.99, help='')
-parser.add_argument('--log_interval', default=10, help='')
+parser.add_argument('--log_interval', default=20, help='')
 parser.add_argument('--save_interval', default=1000, help='')
 parser.add_argument('--num_envs', type=int, default=16, help='')
-parser.add_argument('--num_step', default=20, help='')
-parser.add_argument('--lstm_size', default=256, help='')
+parser.add_argument('--hidden_size', type=int, default=512, help='')
+parser.add_argument('--num_step', type=int, default=20, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
 parser.add_argument('--lr', default=7e-4, help='')
 parser.add_argument('--eps', default=1e-5, help='')
-parser.add_argument('--clip_grad_norm', default=3, help='')
+parser.add_argument('--alpha', type=float, default=0.99, help='')
+parser.add_argument('--clip_grad_norm', default=0.5, help='')
 parser.add_argument('--logdir', type=str, default='./logs',
                     help='tensorboardx logs directory')
 args = parser.parse_args()
@@ -40,103 +47,97 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def main():
-    env = gym.make(args.env_name)
-    env.seed(500)
-    torch.manual_seed(500)
-
-    num_inputs = env.observation_space.shape
-    num_actions = env.action_space.n
+    print('==> make {} environment'.format(args.num_envs))
+    # reference: https://github.com/lnpalmer/A2C/blob/master/train.py
+    env_fns = []
+    for rank in range(args.num_envs):
+        env_fns.append(lambda: make_env(args.env_name, 
+                                        rank, args.seed + rank))
+    if args.render:
+        venv = RenderSubprocVecEnv(env_fns)
+    else:
+        venv = SubprocVecEnv(env_fns)
+    # venv = VecFrameStack(venv, 4)
+    
+    num_inputs = venv.observation_space.shape
+    num_actions = venv.action_space.n
     print('state size:', num_inputs)
     print('action size:', num_actions)
-
-    net = A2CLSTM(num_actions, lstm_size=args.lstm_size)
-    optimizer = optim.RMSprop(net.parameters(), lr=args.lr, eps=args.eps)
+    
+    print('==> make actor critic network')
+    net = ActorCritic(num_actions, args.hidden_size)
+    optimizer = optim.RMSprop(net.parameters(), lr=args.lr, 
+                              eps=args.eps, alpha=args.alpha)
     writer = SummaryWriter('logs')
 
     if not os.path.isdir(args.save_path):
         os.makedirs(args.save_path)
-    
-    workers = []
-    parent_conns = []
-    child_conns = []
-    
-    # make running environments for workers and 
-    # pipelines for connection between agent and environment
-    for i in range(args.num_envs):
-        parent_conn, child_conn = Pipe()
-        worker = EnvWorker(args.env_name, args.render, child_conn)
-        worker.start()
-        workers.append(worker)
-        parent_conns.append(parent_conn)
-        child_conns.append(child_conn)
-    
+
     net.to(device)
     net.train()
     
-    global_steps = 0
     score = np.zeros(args.num_envs)
-    count = 0
+    episode_scores = deque(maxlen=10)
     
-    state = torch.zeros(args.num_envs, 3, 84, 84).to(device)
-    hx = torch.zeros(args.num_envs, args.lstm_size).to(device)
-    cx = torch.zeros(args.num_envs, args.lstm_size).to(device)
+    global_steps, count, batch_time, entropy = 0, 0, 0, 0
     
+    histories = venv.reset()
+    histories = np.transpose(histories, [0, 3, 1, 2])
+    hx = torch.zeros(args.num_envs, args.hidden_size).to(device)
+    cx = torch.zeros(args.num_envs, args.hidden_size).to(device)
+
+    start = time.time()
     while True:
         count += 1
         memory = Memory()
         global_steps += (args.num_envs * args.num_step)
         
-        start = time.time()
         # gather samples from environment
+        hidden = (hx.detach(), cx.detach())
         for i in range(args.num_step):
-            policies, values, (hx, cx) = net((state, (hx, cx)))
-            actions = get_action(policies, num_actions)
-
-            # send action to each worker environement and get state information
-            next_histories, rewards, masks, dones = [], [], [], []
-            for parent_conn, action in zip(parent_conns, actions):
-                parent_conn.send(action)
-                next_history, reward, done = parent_conn.recv()
-                next_histories.append(next_history)
-                rewards.append(reward)
-                masks.append(1-done)
-                dones.append(done)
-
-            score += np.array(rewards)
-
-            # if agent in first environment dies, print and log score
-            for i in range(args.num_envs):
-                if dones[i]: 
-                    hx_mask = torch.ones(args.num_envs, args.lstm_size).to(device)
-                    hx_mask[i, :] = hx_mask[i, :]*0
-                    cx_mask = torch.ones(args.num_envs, args.lstm_size).to(device)
-                    cx_mask[i, :] = cx_mask[i, :]*0
-                    hx = hx * hx_mask
-                    cx = cx * cx_mask
-                    
-                    entropy = - policies * torch.log(policies + 1e-5)
-                    entropy = entropy.mean().data.cpu()
-                    print('global steps {} | score: {} | entropy: {:.4f} '.format(global_steps, score[i], entropy))
-                    if i == 0:
-                        writer.add_scalar('log/score', score[i], global_steps)
-                    score[i] = 0
+            # with torch.no_grad():
+            logits, values, (hx, cx) = net((torch.Tensor(histories).to(device), hidden))
+            # print(logits)
+            actions = get_action(logits, num_actions)
             
-            next_histories = torch.Tensor(next_histories).to(device)
-            rewards = np.hstack(rewards)
-            masks = np.hstack(masks)
-            memory.push(next_histories, policies, values, actions, rewards, masks)
-            histories = next_histories
+            next_histories, rewards, dones, _ = venv.step(actions)
+            masks = 1 - dones
 
+            next_histories = np.transpose(next_histories, [0, 3, 1, 2])
+            score += np.array(rewards)
+            rewards = np.hstack(rewards)
+            
+            masks = np.hstack(masks)
+            masks_t = torch.Tensor(masks).to(device)
+            masks_t = masks_t.unsqueeze(-1)
+            masks_t = masks_t.expand(args.num_envs, args.hidden_size)
+            hx = hx * masks_t
+            cx = cx * masks_t
+            
+            memory.push(logits, values, actions, rewards, masks)
+            histories = next_histories
+            
+            for i in range(args.num_envs): 
+                if dones[i]:
+                    episode_scores.append(score[i])
+                    
+            score *= masks
+            hidden = (hx, cx)
+            
         # train network with accumulated samples
         transitions = memory.sample()
-        train_model(net, optimizer, transitions, args)
+        _, last_values, _ = net((torch.Tensor(next_histories).to(device), hidden))
+        entropy, grad_norm = train_model(net, optimizer, transitions, last_values, args)
         
-        hx = hx.detach()
-        cx = cx.detach()
-        
-        end = time.time()
-        # print('time spent: {:.3f}'.format( end-start ))
-        
+        if count % args.log_interval == 0:
+            end = time.time()
+            mean_score = np.mean(episode_scores)
+            print('steps {} | mean score: {} | entropy: {:.2f} | '
+                  'grad norm : {:.3f} | frame per sec: {:.0f}'.format(
+                   global_steps, mean_score, entropy.item(), grad_norm, 
+                   global_steps/(end-start)))
+            writer.add_scalar('log/score', mean_score, global_steps)
+            
         if count % args.save_interval == 0:
             ckpt_path = args.save_path + 'model.pt'
             torch.save(net.state_dict(), ckpt_path)
