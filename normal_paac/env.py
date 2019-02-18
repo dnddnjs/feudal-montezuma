@@ -16,7 +16,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def make_env(env_name, rank, seed):
     env = make_atari(env_name)
     env.seed(seed + rank)
-    env = wrap_deepmind(env)
+    env = wrap_deepmind(env, frame_stack=True, scale=True)
     return env
 
 

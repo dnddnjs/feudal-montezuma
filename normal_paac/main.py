@@ -29,10 +29,10 @@ parser.add_argument('--save_path', default='./save_model/', help='')
 parser.add_argument('--render', default=False, action="store_true")
 parser.add_argument('--gamma', default=0.99, help='')
 parser.add_argument('--lamda', default=1.0, help='')
-parser.add_argument('--log_interval', default=100, help='')
+parser.add_argument('--log_interval', default=20, help='')
 parser.add_argument('--render_interval', default=4, help='')
 parser.add_argument('--save_interval', default=1000, help='')
-parser.add_argument('--num_envs', type=int, default=12, help='')
+parser.add_argument('--num_envs', type=int, default=16, help='')
 parser.add_argument('--num_step', type=int, default=5, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
@@ -58,7 +58,7 @@ def main():
         venv = RenderSubprocVecEnv(env_fns)
     else:
         venv = SubprocVecEnv(env_fns)
-    venv = VecFrameStack(venv, 4)
+    # venv = VecFrameStack(venv, 4)
     
     num_inputs = venv.observation_space.shape
     num_actions = venv.action_space.n
@@ -67,7 +67,8 @@ def main():
     
     print('==> make actor critic network')
     net = ActorCritic(num_actions)
-    optimizer = optim.RMSprop(net.parameters(), lr=args.lr, eps=args.eps, alpha=args.alpha)
+    optimizer = optim.RMSprop(net.parameters(), lr=args.lr, 
+                              eps=args.eps, alpha=args.alpha)
     writer = SummaryWriter('logs')
 
     if not os.path.isdir(args.save_path):
@@ -84,12 +85,12 @@ def main():
     histories = venv.reset()
     histories = np.transpose(histories, [0, 3, 1, 2])
     
+    start = time.time()
     while True:
         count += 1
         memory = Memory()
         global_steps += (args.num_envs * args.num_step)
-        
-        start = time.time()
+
         # gather samples from environment
         for _ in range(args.num_step):
             logits, values = net(torch.Tensor(histories).to(device))
@@ -103,27 +104,27 @@ def main():
             
             rewards = np.hstack(rewards)
             masks = np.hstack(masks)
-            memory.push(torch.Tensor(next_histories).to(device), 
-                        logits, values, actions, rewards, masks)
+            memory.push(logits, values, actions, rewards, masks)
             histories = next_histories
             
             for i in range(args.num_envs): 
                 if dones[i]:
                     episode_scores.append(score[i])
-
             score *= masks
             
         # train network with accumulated samples
         transitions = memory.sample()
-        entropy = train_model(net, optimizer, transitions, args)
-        
-        end = time.time()
-        batch_time = end - start
-        
+        _, last_values = net(torch.Tensor(next_histories).to(device))
+        entropy, grad_norm = train_model(net, optimizer, transitions, last_values, args)
+
         if count % args.log_interval == 0:
-            print('global steps {} | mean score: {} | entropy: {:.4f} | batch time: {:.3f}'.format(
-                    global_steps, np.mean(episode_scores), entropy.item(), batch_time))
-            writer.add_scalar('log/score', np.mean(episode_scores), global_steps)
+            end = time.time()
+            mean_score = np.mean(episode_scores)
+            print('steps {} | mean score: {} | entropy: {:.2f} | '
+                  'grad norm : {:.3f} | frame per sec: {:.0f}'.format(
+                   global_steps, mean_score, entropy.item(), grad_norm, 
+                   global_steps/(end-start)))
+            writer.add_scalar('log/score', mean_score, global_steps)
             
         if count % args.save_interval == 0:
             ckpt_path = args.save_path + 'model.pt'

@@ -62,7 +62,7 @@ class ActorCritic(nn.Module):
         '''
 
     def forward(self, x):
-        x = self.main(x / 255.)
+        x = self.main(x)
         logit = self.actor_linear(x)
         value = self.critic_linear(x)
         return logit, value
