@@ -28,15 +28,17 @@ parser.add_argument('--load_model', type=str, default=None)
 parser.add_argument('--save_path', default='./save_model/', help='')
 parser.add_argument('--render', default=False, action="store_true")
 parser.add_argument('--gamma', default=0.99, help='')
-parser.add_argument('--lamda', default=1.0, help='')
-parser.add_argument('--log_interval', default=20, help='')
+parser.add_argument('--lamda', default=0.95, help='')
+parser.add_argument('--clip_param', default=0.1, help='')
+parser.add_argument('--batch_size', default=32*8, help='')
+parser.add_argument('--log_interval', default=5, help='')
 parser.add_argument('--render_interval', default=4, help='')
 parser.add_argument('--save_interval', default=1000, help='')
-parser.add_argument('--num_envs', type=int, default=16, help='')
-parser.add_argument('--num_step', type=int, default=5, help='')
+parser.add_argument('--num_envs', type=int, default=8, help='')
+parser.add_argument('--num_step', type=int, default=128, help='')
 parser.add_argument('--value_coef', default=0.5, help='')
 parser.add_argument('--entropy_coef', default=0.01, help='')
-parser.add_argument('--lr', default=7e-4, help='')
+parser.add_argument('--lr', default=2.5e-4, help='')
 parser.add_argument('--eps', default=1e-5, help='')
 parser.add_argument('--alpha', type=float, default=0.99, help='')
 parser.add_argument('--clip_grad_norm', default=0.5, help='')
@@ -67,8 +69,7 @@ def main():
     
     print('==> make actor critic network')
     net = ActorCritic(num_actions)
-    optimizer = optim.RMSprop(net.parameters(), lr=args.lr, 
-                              eps=args.eps, alpha=args.alpha)
+    optimizer = optim.Adam(net.parameters(), lr=args.lr)
     writer = SummaryWriter('logs')
 
     if not os.path.isdir(args.save_path):
@@ -104,7 +105,8 @@ def main():
             
             rewards = np.hstack(rewards)
             masks = np.hstack(masks)
-            memory.push(logits, values, actions, rewards, masks)
+            memory.push(torch.Tensor(histories).to(device), 
+                        logits, values, actions, rewards, masks)
             histories = next_histories
             
             for i in range(args.num_envs): 
